@@ -19,6 +19,10 @@ on:
         description: Only print the plan and change nothing.
         type: boolean
         default: false
+      files:
+        description: Also delete the artifact files from every commit.
+        type: boolean
+        default: false
       push:
         description: Force push the rewritten history.
         type: boolean
@@ -55,6 +59,7 @@ jobs:
           fail-on-findings: ${{ inputs.fail-on-findings }}
           secrets: ${{ inputs.secrets }}
           dry-run: ${{ inputs.dry-run }}
+          files: ${{ inputs.files }}
           push: ${{ inputs.push }}
           gc: ${{ inputs.gc }}
           extra-paths: ${{ inputs.extra-paths }}

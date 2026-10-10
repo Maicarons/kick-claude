@@ -61,6 +61,7 @@ const OPTION_SPEC = {
   "no-backup": { type: "boolean" },
   "keep-old": { type: "boolean" },
   "scrub-mentions": { type: "boolean" },
+  files: { type: "boolean" },
   engine: { type: "string" },
   "no-prune": { type: "boolean" },
   "no-remap": { type: "boolean" },
@@ -300,6 +301,7 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
     force: opts.force,
     keepOldObjects: Boolean(v["keep-old"]),
     scrubMessageMentions: Boolean(v["scrub-mentions"]),
+    removeFiles: Boolean(v.files),
     scan: opts.scan,
     log: (m) => {
       if (opts.verbose) out(dim(m));
@@ -328,14 +330,17 @@ if (opts.json && opts.dryRun) {
     `  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyOccurrences} historical occurrence(s)`,
   );
   out(`  messages     ${plan.messageCount} commit message(s) with Claude markers`);
-  if (plan.messageMentions > 0) {
+  if (plan.removeFiles && plan.messageMentions > 0) {
     out(
       `  mentions     ${plan.messageMentions} commit message(s) still mention a removed path` +
-        (v["scrub-mentions"] ? " (being scrubbed)" : dim("  (--scrub-mentions to remove)")),
+        (v["scrub-mentions"] && purgeOpts.removeFiles
+          ? " (being scrubbed)"
+          : dim("  (--scrub-mentions to remove)")),
     );
   }
   out(
-    `  options      prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`,
+    `  options      scope=${purgeOpts.removeFiles ? "messages+files" : "messages-only"}` +
+      ` prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`,
   );
   out();
 
@@ -344,10 +349,22 @@ if (opts.json && opts.dryRun) {
     return 0;
   }
   if (plan.artifactPaths.length) {
-    table(plan.artifactPaths.slice(0, 25).map((p) => ["  " + red(p)]));
+    table(
+      plan.artifactPaths
+        .slice(0, 25)
+        .map((p) => ["  " + (purgeOpts.removeFiles ? red(p) : yellow(p))]),
+    );
     if (plan.artifactPaths.length > 25) {
       out(dim(`  ... and ${plan.artifactPaths.length - 25} more`));
     }
+    out(
+      purgeOpts.removeFiles
+        ? dim("  the files above are deleted from every commit")
+        : yellow(
+            `  the files above are KEPT - only commit messages are rewritten\n` +
+              `  pass --files to delete them from history too`,
+          ),
+    );
     out();
   }
 
@@ -492,6 +509,7 @@ function printHelp(topic?: string): void {
       "",
       "  " + bold("Detect and losslessly purge Claude Code collaboration files"),
       "  CLAUDE.md, CLAUDE.local.md, .claude/, .mcp.json, .claude.json",
+      "  " + dim("purge rewrites commit messages by default; add --files to delete the files too"),
       "",
       "  " + bold("USAGE"),
       "    kick-claude <command> [options]",
@@ -521,6 +539,7 @@ function printHelp(topic?: string): void {
       "    --dry-run            Show what would happen",
       "",
       "  " + bold("PURGE OPTIONS"),
+      "    --files              Also delete CLAUDE.md & co from every commit (default: messages only)",
       "    --engine <e>         auto | native | filter-repo  (default: auto -> native)",
       "    --no-prune           Keep commits that become empty",
       "    --no-remap           Do not rewrite hash references inside commit messages",

@@ -141,7 +141,7 @@ console.log("purge without push");
   git(["commit", "-q", "-m", "chore: add claude config"], dir);
 
   const before = Number(git(["rev-list", "--count", "HEAD"], dir));
-  const r = await runAction(dir, { command: "purge" });
+  const r = await runAction(dir, { command: "purge", files: "true" });
   check("step succeeds", r.status === 0, r.stdout + r.stderr);
   check("verification output true", outputValue(r.outputs, "verification-ok") === "true");
   check("files-removed is 2", outputValue(r.outputs, "files-removed") === "2", r.stdout);
@@ -162,7 +162,7 @@ console.log("purge without push");
 console.log("guards and dry runs");
 {
   const dir = await makeRepo(["CLAUDE.md"]);
-  const pr = await runAction(dir, { command: "purge", push: "true" }, "pull_request");
+  const pr = await runAction(dir, { command: "purge", files: "true", push: "true" }, "pull_request");
   check("refuses force push from pull_request", pr.status === 1 && pr.stdout.includes("Refusing"));
   const mismatch = await runAction(dir, { command: "scan", push: "true" });
   check("push outside purge is rejected", mismatch.status === 1);
@@ -181,8 +181,36 @@ console.log("dirty working tree");
 {
   const dir = await makeRepo(["CLAUDE.md"]);
   await appendFile(join(dir, "CLAUDE.md"), "local edit\n", "utf8");
-  const r = await runAction(dir, { command: "purge" });
+  const r = await runAction(dir, { command: "purge", files: "true" });
   check("refuses a dirty working tree", r.status === 1 && r.stdout.includes("uncommitted"));
+  await rm(dir, { recursive: true, force: true });
+}
+
+console.log("purge defaults to messages only");
+{
+  const dir = await mkdtemp(join(tmpdir(), "kick-claude-action-msgs-"));
+  git(["init", "-q", "-b", "main"], dir);
+  git(["config", "user.email", "t@e.c"], dir);
+  git(["config", "user.name", "T"], dir);
+  git(["config", "commit.gpgsign", "false"], dir);
+  await writeFile(join(dir, "README.md"), "r\n", "utf8");
+  git(["add", "-A"], dir);
+  git(["commit", "-q", "-m", "feat: initial commit"], dir);
+  await writeFile(join(dir, "CLAUDE.md"), "# claude\n", "utf8");
+  git(["add", "-A"], dir);
+  git(["commit", "-q", "-m", "docs: add guidance\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n"], dir);
+  const blob = git(["rev-parse", "HEAD:CLAUDE.md"], dir);
+
+  const r = await runAction(dir, { command: "purge" });
+  check("step succeeds", r.status === 0, r.stdout + r.stderr);
+  check("files are kept by default", git(["cat-file", "-e", "HEAD:CLAUDE.md"], dir) === "");
+  check("blob is unchanged", git(["rev-parse", "HEAD:CLAUDE.md"], dir) === blob);
+  check("trailer is gone", !/Claude/.test(git(["log", "--format=%B", "-1"], dir)));
+  check(
+    "files-removed is 0",
+    outputValue(r.outputs, "files-removed") === "0",
+    outputValue(r.outputs, "files-removed")
+  );
   await rm(dir, { recursive: true, force: true });
 }
 
@@ -207,7 +235,7 @@ console.log("purge with a force push to a real bare remote");
   git(["tag", "v1.0.0"], dir);
   git(["push", "-q", "origin", "v1.0.0"], dir);
 
-  const r = await runAction(dir, { command: "purge", push: "true", "push-remote": "origin" });
+  const r = await runAction(dir, { command: "purge", files: "true", push: "true", "push-remote": "origin" });
 
   check("step succeeds", r.status === 0, r.stdout + r.stderr);
   check("pushed output is true", outputValue(r.outputs, "pushed") === "true", r.stdout);

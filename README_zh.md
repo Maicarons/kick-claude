@@ -104,8 +104,21 @@ kick-claude purge               # 交互式确认
 kick-claude purge -y            # 无交互
 ```
 
+**默认只改写提交信息** —— `Co-Authored-By: Claude` trailer 和
+`Generated with Claude Code` 页脚被清掉，而 `CLAUDE.md`、`.claude/` 等文件
+原封不动地留在原地，逐字节不变。这是常见需求："别再把功劳算给 Claude"，
+但一个文件都不想动。
+
+想让文件本身也从每个提交里消失，加上 `--files`：
+
+```bash
+kick-claude purge --files -y
+```
+
 | 选项            | 作用                                              |
 | --------------- | ------------------------------------------------- |
+| `--files`       | 同时把产物文件从每个提交里删除（**默认关闭**）    |
+| `--scrub-mentions` | 配合 `--files`，额外删除提到被删文件的提交信息行 |
 | `--engine <e>`  | `auto`（默认）\| `native` \| `filter-repo`        |
 | `--no-prune`    | 保留那些"过滤后变空"的提交                          |
 | `--no-remap`    | 不重写提交信息里引用的旧 commit hash               |
@@ -114,6 +127,9 @@ kick-claude purge -y            # 无交互
 | `--dry-run`     | 只出计划                                            |
 | `-y, --yes`     | 不询问                                             |
 | `--force`       | 工作区脏也照改                                      |
+
+`--files` 相对 `kick-claude <= 1.0` 是破坏性变更（旧版总是删文件）。
+`git filter-repo` 无法改写提交信息，所以 `--engine filter-repo` 必须配合 `--files`。
 
 ## purge 的工作原理
 
@@ -158,6 +174,7 @@ git reflog expire --expire=now --all && git gc --prune=now --aggressive   # 远�
   uses: Maicarons/kick-claude@v1
   with:
     command: purge
+    files: true
     push: true
 ```
 
@@ -173,6 +190,7 @@ jobs:
     uses: Maicarons/kick-claude/.github/workflows/kick-claude.yml@v1
     with:
       command: purge
+      files: true
       push: true
     secrets: inherit
 ```
@@ -195,6 +213,8 @@ jobs:
 | `extra-paths` | – | 换行或逗号分隔的额外规则 |
 | `include-rules` / `exclude-rules` | – | 规则 id |
 | `dry-run` | `false` | 只出计划 |
+| `files` | `false` | 同时删除产物文件（默认只改提交信息） |
+| `scrub-mentions` | `false` | 配合 `files`，删除提到被删文件的提交信息行 |
 | `purge` 相关 | | `prune-empty`、`remap-hashes`、`include-reflog`、`engine` |
 | `push` | `false` | force push 改写后的历史 |
 | `push-remote` / `push-refspec` | `origin` / `--force --prune refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*` | |

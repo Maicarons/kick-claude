@@ -55,6 +55,8 @@ const PUSH_REFSPEC = input(
 ).trim();
 const TOKEN = input("token", "").trim();
 const WRITE_SUMMARY = boolInput("summary", true);
+const REMOVE_FILES = boolInput("files", false);
+const SCRUB_MENTIONS = boolInput("scrub-mentions", false);
 
 const VALID_COMMANDS = new Set(["scan", "clean", "init", "purge", "rules"]);
 
@@ -185,6 +187,10 @@ function buildArgs() {
 
   if (COMMAND === "purge") {
     args.push("--yes");
+    // Only the commit messages are rewritten unless the caller opts into
+    // deleting the files, mirroring the CLI default.
+    if (REMOVE_FILES) args.push("--files");
+    if (SCRUB_MENTIONS && REMOVE_FILES) args.push("--scrub-mentions");
     if (!PRUNE_EMPTY) args.push("--no-prune");
     if (!REMAP_HASHES) args.push("--no-remap");
     if (!GC) args.push("--keep-old");

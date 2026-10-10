@@ -117,8 +117,21 @@ kick-claude purge               # interactive confirmation
 kick-claude purge -y            # unattended
 ```
 
+**By default only the commit messages are rewritten** — the `Co-Authored-By: Claude`
+trailer and the `Generated with Claude Code` footer go away, while `CLAUDE.md`,
+`.claude/` and friends stay exactly where they are, byte for byte. That is the
+common case: "stop crediting Claude" without touching a single file.
+
+Pass `--files` when the files themselves should disappear from every commit too:
+
+```bash
+kick-claude purge --files -y
+```
+
 | Option              | Effect                                                        |
 | ------------------- | ------------------------------------------------------------- |
+| `--files`           | also delete the artifact files from every commit (**off** by default) |
+| `--scrub-mentions`  | with `--files`, also delete message lines that name a removed file |
 | `--engine <e>`      | `auto` (default) \| `native` \| `filter-repo`                  |
 | `--no-prune`        | keep commits that become empty after filtering                 |
 | `--no-remap`        | do not rewrite old commit hashes mentioned in messages         |
@@ -127,6 +140,10 @@ kick-claude purge -y            # unattended
 | `--dry-run`         | plan only                                                      |
 | `-y, --yes`         | no prompt                                                      |
 | `--force`           | rewrite even with a dirty working tree                         |
+
+`--files` is a breaking change from `kick-claude <= 1.0`, where the files were
+always deleted. `git filter-repo` cannot scrub messages at all, so
+`--engine filter-repo` requires `--files`.
 
 ## How the purge works
 
@@ -183,8 +200,9 @@ The repository ships a first-class action, so a workflow can call it directly:
 - id: kick-claude
   uses: Maicarons/kick-claude@v1
   with:
-    command: purge
-    push: true
+            command: purge
+            files: true
+            push: true
 ```
 
 `fetch-depth: 0` matters. A shallow clone does not contain the history the tool
@@ -225,6 +243,8 @@ jobs:
 | `include-rules` / `exclude-rules` | – | rule ids |
 | `dry-run` | `false` | only print the plan |
 | `purge` | | `prune-empty`, `remap-hashes`, `include-reflog`, `engine` |
+| `files` | `false` | also delete the artifact files (default: messages only) |
+| `scrub-mentions` | `false` | with `files`, drop message lines naming a removed file |
 | `push` | `false` | force push the rewritten history |
 | `push-remote` / `push-refspec` | `origin` / `--force --prune refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*` | |
 | `ensure-full-history` | `true` | deepen a shallow clone first |

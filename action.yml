@@ -43,6 +43,14 @@ inputs:
     description: Only print the plan and change nothing.
     required: false
     default: "false"
+  files:
+    description: Purge - also delete the artifact files from every commit. Off by default, so only commit messages are rewritten.
+    required: false
+    default: "false"
+  scrub-mentions:
+    description: Purge - also delete message lines that mention a removed path. Requires files.
+    required: false
+    default: "false"
   prune-empty:
     description: Purge - drop commits that become empty after filtering.
     required: false

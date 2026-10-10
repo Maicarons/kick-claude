@@ -1672,17 +1672,19 @@ async function planPurge(info, opts, filterRepoAvailable) {
     countHistoryOccurrences(info, historyPaths),
     countMessageMentions(info, opts, historyPaths)
   ]);
+  const hasWork = opts.removeFiles ? report.findings.some((f) => f.scope !== "message") : report.findings.some((f) => f.scope === "message");
   return {
     artifactPaths: report.paths,
     historyPathCount: report.findings.filter((f) => f.scope === "history").length,
-    historyOccurrences,
+    historyOccurrences: opts.removeFiles ? historyOccurrences : 0,
     messageMentions,
     messageCount: report.findings.filter((f) => f.scope === "message").length,
     commits,
     rules,
     engine: opts.engine,
     resolvedEngine,
-    hasWork: report.findings.length > 0
+    removeFiles: opts.removeFiles,
+    hasWork
   };
 }
 async function countHistoryOccurrences(info, paths) {
@@ -1762,7 +1764,8 @@ function removeMentions(line, paths) {
 }
 async function purge(info, plan, opts) {
   const warnings = [];
-  const matcher = (p) => plan.rules.some((r) => r.test(p));
+  const artifactMatcher = (p) => plan.rules.some((r) => r.test(p));
+  const matcher = opts.removeFiles ? artifactMatcher : () => false;
   const state = await repoState(info);
   if (state.inProgress.length) {
     throw new Error(`refusing to rewrite: ${state.inProgress.join(", ")}. Finish or abort it first.`);
@@ -1789,6 +1792,10 @@ async function purge(info, plan, opts) {
   let native = null;
   let filterRepoOutput = null;
   if (plan.resolvedEngine === "filter-repo") {
+    if (!opts.removeFiles) {
+      throw new Error(`the filter-repo engine only removes files; it cannot scrub commit messages.
+` + "Re-run with --engine native, or pass --files to delete the artifacts instead.");
+    }
     opts.log(dim("... rewriting history with git filter-repo"));
     const r = await runFilterRepo(info, {
       pathSpecs: rulesToPathSpecs(opts.scan.extraSpecs ?? []),
@@ -1805,7 +1812,7 @@ ${r.output}`);
       pruneEmpty: opts.pruneEmpty,
       remapHashes: opts.remapHashes,
       workDir,
-      ...opts.scrubMessageMentions ? {
+      ...opts.scrubMessageMentions && opts.removeFiles ? {
         filterMessage: (message) => stripMentionLines(defaultMessageFilter(message), plan.artifactPaths)
       } : {},
       log: (m) => opts.log(dim(m))
@@ -1858,6 +1865,7 @@ var OPTION_SPEC = {
   "no-backup": { type: "boolean" },
   "keep-old": { type: "boolean" },
   "scrub-mentions": { type: "boolean" },
+  files: { type: "boolean" },
   engine: { type: "string" },
   "no-prune": { type: "boolean" },
   "no-remap": { type: "boolean" },
@@ -2044,6 +2052,7 @@ async function cmdPurge(opts, v) {
     force: opts.force,
     keepOldObjects: Boolean(v["keep-old"]),
     scrubMessageMentions: Boolean(v["scrub-mentions"]),
+    removeFiles: Boolean(v.files),
     scan: opts.scan,
     log: (m) => {
       if (opts.verbose)
@@ -2066,20 +2075,22 @@ async function cmdPurge(opts, v) {
   out(`  engine       ${plan.resolvedEngine}`);
   out(`  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyOccurrences} historical occurrence(s)`);
   out(`  messages     ${plan.messageCount} commit message(s) with Claude markers`);
-  if (plan.messageMentions > 0) {
-    out(`  mentions     ${plan.messageMentions} commit message(s) still mention a removed path` + (v["scrub-mentions"] ? " (being scrubbed)" : dim("  (--scrub-mentions to remove)")));
+  if (plan.removeFiles && plan.messageMentions > 0) {
+    out(`  mentions     ${plan.messageMentions} commit message(s) still mention a removed path` + (v["scrub-mentions"] && purgeOpts.removeFiles ? " (being scrubbed)" : dim("  (--scrub-mentions to remove)")));
   }
-  out(`  options      prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`);
+  out(`  options      scope=${purgeOpts.removeFiles ? "messages+files" : "messages-only"}` + ` prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`);
   out();
   if (!plan.hasWork) {
     out(`${sym.ok()} Nothing to purge.`);
     return 0;
   }
   if (plan.artifactPaths.length) {
-    table(plan.artifactPaths.slice(0, 25).map((p) => ["  " + red(p)]));
+    table(plan.artifactPaths.slice(0, 25).map((p) => ["  " + (purgeOpts.removeFiles ? red(p) : yellow(p))]));
     if (plan.artifactPaths.length > 25) {
       out(dim(`  ... and ${plan.artifactPaths.length - 25} more`));
     }
+    out(purgeOpts.removeFiles ? dim("  the files above are deleted from every commit") : yellow(`  the files above are KEPT - only commit messages are rewritten
+` + `  pass --files to delete them from history too`));
     out();
   }
   if (opts.dryRun) {
@@ -2188,6 +2199,7 @@ function printHelp(topic) {
     "",
     "  " + bold("Detect and losslessly purge Claude Code collaboration files"),
     "  CLAUDE.md, CLAUDE.local.md, .claude/, .mcp.json, .claude.json",
+    "  " + dim("purge rewrites commit messages by default; add --files to delete the files too"),
     "",
     "  " + bold("USAGE"),
     "    kick-claude <command> [options]",
@@ -2217,6 +2229,7 @@ function printHelp(topic) {
     "    --dry-run            Show what would happen",
     "",
     "  " + bold("PURGE OPTIONS"),
+    "    --files              Also delete CLAUDE.md & co from every commit (default: messages only)",
     "    --engine <e>         auto | native | filter-repo  (default: auto -> native)",
     "    --no-prune           Keep commits that become empty",
     "    --no-remap           Do not rewrite hash references inside commit messages",
@@ -2247,6 +2260,6 @@ main().then((code) => process.exit(code), (e) => {
   process.exit(2);
 });
 
-//# debugId=610B32DABBBB726764756E2164756E21
+//# debugId=42B9C86AB908E67B64756E2164756E21
 
-// kick-claude-source-hash: 620dd74ffd789771
+// kick-claude-source-hash: ee4d7900e4f77883

@@ -33,6 +33,12 @@ export interface PurgeOptions {
   /** Keep unreachable objects (no reflog expire / gc). */
   keepOldObjects: boolean;
   /**
+   * Delete the artifact files from every commit. Off by default: the common
+   * case is "stop crediting Claude", which only needs the commit messages
+   * rewritten and leaves every file (and therefore every tree) untouched.
+   */
+  removeFiles: boolean;
+  /**
    * Also delete commit message lines that mention a removed artifact, e.g. a
    * subject line saying "add CLAUDE.md". Off by default because it rewrites
    * prose; the leftovers are reported as a warning either way.
@@ -60,6 +66,8 @@ export interface PurgePlan {
   rules: CompiledRule[];
   engine: Engine;
   resolvedEngine: "native" | "filter-repo";
+  /** Whether the artifact files themselves will be deleted from history. */
+  removeFiles: boolean;
   hasWork: boolean;
 }
 
@@ -90,17 +98,22 @@ export async function planPurge(
     countMessageMentions(info, opts, historyPaths),
   ]);
 
+  const hasWork = opts.removeFiles
+    ? report.findings.some((f) => f.scope !== "message")
+    : report.findings.some((f) => f.scope === "message");
+
   return {
     artifactPaths: report.paths,
     historyPathCount: report.findings.filter((f) => f.scope === "history").length,
-    historyOccurrences,
+    historyOccurrences: opts.removeFiles ? historyOccurrences : 0,
     messageMentions,
     messageCount: report.findings.filter((f) => f.scope === "message").length,
     commits,
     rules,
     engine: opts.engine,
     resolvedEngine,
-    hasWork: report.findings.length > 0,
+    removeFiles: opts.removeFiles,
+    hasWork,
   };
 }
 
@@ -224,7 +237,13 @@ export async function purge(
   opts: PurgeOptions,
 ): Promise<PurgeResult> {
   const warnings: string[] = [];
-  const matcher = (p: string) => plan.rules.some((r) => r.test(p));
+  const artifactMatcher = (p: string) => plan.rules.some((r) => r.test(p));
+
+  // Messages are scrubbed unconditionally; the files themselves are only
+  // deleted when `--files` is given. With the default, the verification
+  // fingerprint therefore *includes* CLAUDE.md, which proves the rewrite left
+  // every file alone.
+  const matcher = opts.removeFiles ? artifactMatcher : () => false;
 
   const state = await repoState(info);
   if (state.inProgress.length) {
@@ -262,6 +281,12 @@ export async function purge(
   let filterRepoOutput: string | null = null;
 
   if (plan.resolvedEngine === "filter-repo") {
+    if (!opts.removeFiles) {
+      throw new Error(
+        "the filter-repo engine only removes files; it cannot scrub commit messages.\n" +
+          "Re-run with --engine native, or pass --files to delete the artifacts instead.",
+      );
+    }
     opts.log(dim("... rewriting history with git filter-repo"));
     const r = await runFilterRepo(info, {
       pathSpecs: rulesToPathSpecs(opts.scan.extraSpecs ?? []),
@@ -276,7 +301,7 @@ export async function purge(
       pruneEmpty: opts.pruneEmpty,
       remapHashes: opts.remapHashes,
       workDir,
-      ...(opts.scrubMessageMentions
+      ...(opts.scrubMessageMentions && opts.removeFiles
         ? {
             filterMessage: (message: string) =>
               stripMentionLines(defaultMessageFilter(message), plan.artifactPaths),

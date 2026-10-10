@@ -12,6 +12,7 @@ import { scan } from "../src/detect.ts";
 import { compileRule, DEFAULT_RULES } from "../src/rules.ts";
 import { nativePurge } from "../src/purge/native.ts";
 import { fingerprintRefs } from "../src/purge/verify.ts";
+import { planPurge, purge } from "../src/purge/index.ts";
 
 let dir: string;
 let info: RepoInfo;
@@ -96,6 +97,75 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
+});
+
+describe("scope default", () => {
+  test(
+    "messages-only purge keeps every file and only rewrites trailers",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "kick-claude-scope-"));
+      const g = (args: string[]) => git(args, dir);
+      const gx = async (args: string[]) => {
+        const r = await g(args);
+        if (r.code !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+        return r.stdout;
+      };
+      const write = async (rel: string, body: string) => {
+        await mkdir(join(dir, rel, ".."), { recursive: true });
+        await writeFile(join(dir, rel), body, "utf8");
+      };
+
+      await gx(["init", "-q", "-b", "main"]);
+      await gx(["config", "user.email", "t@e.c"]);
+      await gx(["config", "user.name", "T"]);
+      await gx(["config", "commit.gpgsign", "false"]);
+      await write("README.md", "r\n");
+      await gx(["add", "-A"]);
+      await gx(["commit", "-q", "-m", "feat: add readme"]);
+      await write("CLAUDE.md", "# claude\n");
+      await write("src/a.txt", "A\n");
+      await gx(["add", "-A"]);
+      await gx([
+        "commit",
+        "-q",
+        "-m",
+        "feat: add a\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n",
+      ]);
+
+      const claudeBlob = (await gx(["rev-parse", "HEAD:CLAUDE.md"])).trim();
+      const info = await repoInfo(dir);
+      const opts = {
+        engine: "native" as const,
+        pruneEmpty: true,
+        remapHashes: true,
+        backup: false,
+        assumeYes: true,
+        force: false,
+        keepOldObjects: false,
+        removeFiles: false,
+        scan: {},
+        log: () => {},
+      };
+
+      const plan = await planPurge(info, opts, false);
+      expect(plan.removeFiles).toBe(false);
+      expect(plan.hasWork).toBe(true);
+      // Files are kept, so nothing may be reported as "removed".
+      expect(plan.historyOccurrences).toBe(0);
+      expect(plan.messageCount).toBe(1);
+
+      const result = await purge(info, plan, opts);
+      expect(result.native?.stats.removedFileChanges).toBe(0);
+      expect(result.native?.stats.rewrittenMessages).toBe(1);
+      // CLAUDE.md survives byte for byte.
+      expect((await gx(["rev-parse", "HEAD:CLAUDE.md"])).trim()).toBe(claudeBlob);
+      expect(await gx(["log", "--format=%B", "-1"])).not.toContain("Claude");
+      expect((await gx(["rev-list", "--count", "HEAD"])).trim()).toBe("2");
+
+      await rm(dir, { recursive: true, force: true });
+    },
+    60_000,
+  );
 });
 
 describe("scan", () => {
