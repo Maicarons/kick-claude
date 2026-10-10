@@ -40,3 +40,20 @@ jobs:
         run: bun run scripts/action-check.ts
       - name: Smoke test the action bundle on Node
         run: node action/cli.js --version
+
+  self-test:
+    name: run the action on itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Executes action.yml for real: runtime version, input plumbing, outputs.
+      - id: kick-claude
+        uses: ./
+        with:
+          command: scan
+          fail-on-findings: false
+      - name: Outputs are wired up
+        run: |
+          test "${{ steps.kick-claude.outputs.found }}" = "false"
+          test "${{ steps.kick-claude.outputs.commits-seen }}" != ""
+          echo "found=${{ steps.kick-claude.outputs.found }}"

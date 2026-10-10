@@ -1,10 +1,10 @@
 name: Kick Claude
-description: Detect and losslessly purge Claude Code collaboration files (CLAUDE.md, .claude/, .mcp.json) from the working tree and from complete git history, then optionally force-push the rewritten history.
+description: Remove Claude Code files (CLAUDE.md, .claude/, .mcp.json) from your working tree and full git history.
 author: Maicarons
 
 branding:
   icon: shield
-  color: blueviolet
+  color: orange
 
 inputs:
   command:
@@ -121,5 +121,7 @@ outputs:
     value: ${{ steps.kick-claude.outputs.pushed }}
 
 runs:
-  using: node20
+  # GitHub has deprecated the Node 20 runtime and silently forces Node 24, which
+  # logs a warning on every run. Ask for Node 24 directly.
+  using: node24
   main: action/index.cjs
