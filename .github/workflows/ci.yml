@@ -54,6 +54,8 @@ jobs:
           fail-on-findings: false
       - name: Outputs are wired up
         run: |
+          # This repository has no Claude artifacts, so `found` must be false.
           test "${{ steps.kick-claude.outputs.found }}" = "false"
-          test "${{ steps.kick-claude.outputs.commits-seen }}" != ""
-          echo "found=${{ steps.kick-claude.outputs.found }}"
+          # `result` is the JSON report and is always emitted for scan.
+          test -n "${{ steps.kick-claude.outputs.result }}"
+          echo "${{ steps.kick-claude.outputs.result }}" | jq -e '.counts.worktree == 0'
