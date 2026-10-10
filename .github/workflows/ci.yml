@@ -34,8 +34,8 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - name: The committed action/cli.js must match the build
-        run: git diff --exit-code -- action/cli.js
+      - name: The committed action/cli.js must match the current sources
+        run: bun run scripts/check-action-bundle.ts
       - name: Exercise the action entry point like a runner does
         run: bun run scripts/action-check.ts
       - name: Smoke test the action bundle on Node

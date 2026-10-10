@@ -7,9 +7,10 @@
  * Bun-only runtime API (`Bun.spawn`, `Bun.file`, ...); `node:child_process`
  * and friends are used everywhere instead.
  */
-import { rm, mkdir, chmod, writeFile, readFile, copyFile } from "node:fs/promises";
+import { rm, mkdir, chmod, writeFile, readFile, copyFile, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { hashSources } from "./source-hash.ts";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const dist = join(root, "dist");
@@ -67,10 +68,20 @@ await writeFile(
 // The GitHub Action runs from a copy of the CLI that is committed to the
 // repository (`action/cli.js`). GitHub downloads the whole repository when it
 // resolves `uses: owner/repo@v1`, so the action stays self-contained and does
-// not depend on the npm registry being reachable from the runner. CI verifies
-// that this copy is byte-identical to the freshly built bundle.
+// not depend on the npm registry being reachable from the runner.
 await mkdir(join(root, "action"), { recursive: true });
 await copyFile(join(dist, "cli.js"), join(root, "action", "cli.js"));
 await chmod(join(root, "action", "cli.js"), 0o755);
+
+// A byte-for-byte comparison of the bundle cannot work across platforms: Bun
+// renames identifiers differently depending on the host, and the emitted
+// `debugId` changes with the output. Instead stamp the bundle with a hash of
+// the sources it was built from and let scripts/check-action-bundle.ts verify
+// that, which is both platform independent and actually meaningful.
+await appendFile(
+  join(root, "action", "cli.js"),
+  `\n// kick-claude-source-hash: ${await hashSources(root)}\n`,
+  "utf8"
+);
 
 console.log("built ->", dist, "and action/cli.js");

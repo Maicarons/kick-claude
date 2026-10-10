@@ -2157,3 +2157,5 @@ main().then((code) => process.exit(code), (e) => {
 });
 
 //# debugId=61044E296388120E64756E2164756E21
+
+// kick-claude-source-hash: 357a8c08c492f796
