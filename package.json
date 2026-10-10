@@ -49,6 +49,7 @@
     "build": "bun run scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:action": "bun run build && bun run scripts/action-check.ts",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {

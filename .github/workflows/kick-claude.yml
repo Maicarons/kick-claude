@@ -1,0 +1,67 @@
+name: kick-claude
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: Subcommand to run - scan, clean, init or purge.
+        type: string
+        default: scan
+      fail-on-findings:
+        description: Fail the job when artifacts are found (scan only).
+        type: boolean
+        default: true
+      secrets:
+        description: Look for credentials in .mcp.json and settings files.
+        type: boolean
+        default: false
+      dry-run:
+        description: Only print the plan and change nothing.
+        type: boolean
+        default: false
+      push:
+        description: Force push the rewritten history.
+        type: boolean
+        default: false
+      gc:
+        description: Expire reflogs and repack after the rewrite.
+        type: boolean
+        default: false
+      extra-paths:
+        description: Newline separated extra path rules.
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  kick-claude:
+    runs-on: ubuntu-latest
+    # Rewriting history is not incremental, so fail fast instead of timing out.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A shallow clone hides commits, which would make a purge or a force
+          # push destroy history. The action can deepen the clone itself, but
+          # fetching everything up front is simpler and cheaper.
+          fetch-depth: 0
+
+      - id: kick-claude
+        uses: Maicarons/kick-claude@v1
+        with:
+          command: ${{ inputs.command }}
+          fail-on-findings: ${{ inputs.fail-on-findings }}
+          secrets: ${{ inputs.secrets }}
+          dry-run: ${{ inputs.dry-run }}
+          push: ${{ inputs.push }}
+          gc: ${{ inputs.gc }}
+          extra-paths: ${{ inputs.extra-paths }}
+          token: ${{ github.token }}
+
+      - name: Report
+        run: |
+          echo "found=${{ steps.kick-claude.outputs.found }}" >> "$GITHUB_OUTPUT"
+          echo "commits-pruned=${{ steps.kick-claude.outputs.commits-pruned }}" >> "$GITHUB_OUTPUT"
+          echo "files-removed=${{ steps.kick-claude.outputs.files-removed }}" >> "$GITHUB_OUTPUT"

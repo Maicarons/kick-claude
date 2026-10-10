@@ -7,7 +7,7 @@
  * Bun-only runtime API (`Bun.spawn`, `Bun.file`, ...); `node:child_process`
  * and friends are used everywhere instead.
  */
-import { rm, mkdir, chmod, writeFile } from "node:fs/promises";
+import { rm, mkdir, chmod, writeFile, readFile, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -64,4 +64,13 @@ await writeFile(
   `export const VERSION = ${JSON.stringify(pkg.version)};\n`,
 );
 
-console.log("built ->", dist);
+// The GitHub Action runs from a copy of the CLI that is committed to the
+// repository (`action/cli.js`). GitHub downloads the whole repository when it
+// resolves `uses: owner/repo@v1`, so the action stays self-contained and does
+// not depend on the npm registry being reachable from the runner. CI verifies
+// that this copy is byte-identical to the freshly built bundle.
+await mkdir(join(root, "action"), { recursive: true });
+await copyFile(join(dist, "cli.js"), join(root, "action", "cli.js"));
+await chmod(join(root, "action", "cli.js"), 0o755);
+
+console.log("built ->", dist, "and action/cli.js");

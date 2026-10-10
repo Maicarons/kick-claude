@@ -1,0 +1,125 @@
+name: Kick Claude
+description: Detect and losslessly purge Claude Code collaboration files (CLAUDE.md, .claude/, .mcp.json) from the working tree and from complete git history, then optionally force-push the rewritten history.
+author: Maicarons
+
+branding:
+  icon: shield
+  color: blueviolet
+
+inputs:
+  command:
+    description: Subcommand to run - scan, clean, init or purge.
+    required: false
+    default: scan
+  path:
+    description: Path to the git repository, relative to the workspace.
+    required: false
+    default: "."
+  args:
+    description: Extra raw flags appended to the command line.
+    required: false
+    default: ""
+  fail-on-findings:
+    description: Fail the step when artifacts are found.
+    required: false
+    default: "true"
+  secrets:
+    description: Also look for credentials inside .mcp.json and settings files.
+    required: false
+    default: "false"
+  extra-paths:
+    description: Newline or comma separated extra path rules.
+    required: false
+    default: ""
+  include-rules:
+    description: Space separated rule ids to restrict the scan to.
+    required: false
+    default: ""
+  exclude-rules:
+    description: Space separated rule ids to skip.
+    required: false
+    default: ""
+  dry-run:
+    description: Only print the plan and change nothing.
+    required: false
+    default: "false"
+  prune-empty:
+    description: Purge - drop commits that become empty after filtering.
+    required: false
+    default: "true"
+  remap-hashes:
+    description: Purge - rewrite old commit hashes referenced in commit messages.
+    required: false
+    default: "true"
+  include-reflog:
+    description: Also inspect reflog-only objects.
+    required: false
+    default: "false"
+  engine:
+    description: Purge engine - auto, native or filter-repo.
+    required: false
+    default: auto
+  ensure-full-history:
+    description: Fetch the complete history first, because a shallow clone hides commits and makes a force push destructive.
+    required: false
+    default: "true"
+  gc:
+    description: Purge - expire reflogs and repack. Pointless on ephemeral runners, so it defaults to false.
+    required: false
+    default: "false"
+  push:
+    description: Purge - force push the rewritten history. Requires permissions contents write.
+    required: false
+    default: "false"
+  push-remote:
+    description: Remote to push to when push is enabled.
+    required: false
+    default: origin
+  push-refspec:
+    description: Refspec used for the force push. Branches and tags are listed separately because git rejects --tags together with --branches.
+    required: false
+    default: --force --prune refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*
+  token:
+    description: Token used for the force push.
+    required: false
+    default: ""
+  summary:
+    description: Write a job summary with the findings.
+    required: false
+    default: "true"
+
+outputs:
+  found:
+    description: true when at least one Claude Code artifact was detected.
+    value: ${{ steps.kick-claude.outputs.found }}
+  paths:
+    description: Newline separated list of detected artifact paths.
+    value: ${{ steps.kick-claude.outputs.paths }}
+  result:
+    description: The full JSON report produced by the command.
+    value: ${{ steps.kick-claude.outputs.result }}
+  commits-seen:
+    description: Purge - number of commits inspected.
+    value: ${{ steps.kick-claude.outputs.commits-seen }}
+  commits-pruned:
+    description: Purge - number of commits dropped because they became empty.
+    value: ${{ steps.kick-claude.outputs.commits-pruned }}
+  files-removed:
+    description: Purge - number of file changes removed.
+    value: ${{ steps.kick-claude.outputs.files-removed }}
+  messages-rewritten:
+    description: Purge - number of commit messages scrubbed.
+    value: ${{ steps.kick-claude.outputs.messages-rewritten }}
+  verification-ok:
+    description: Purge - whether the post rewrite verification passed.
+    value: ${{ steps.kick-claude.outputs.verification-ok }}
+  backup-bundle:
+    description: Purge - path to the pre rewrite bundle, empty when backups are disabled.
+    value: ${{ steps.kick-claude.outputs.backup-bundle }}
+  pushed:
+    description: true when the rewritten history was force pushed.
+    value: ${{ steps.kick-claude.outputs.pushed }}
+
+runs:
+  using: node20
+  main: action/index.cjs

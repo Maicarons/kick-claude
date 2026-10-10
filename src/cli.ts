@@ -306,8 +306,14 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
 
   const plan = await planPurge(info, purgeOpts, fr.available);
 
-  if (opts.json) {
+  // --json must never short-circuit a real rewrite: only a dry run reports the
+// plan, everything else reports the outcome of the work it actually did.
+if (opts.json && opts.dryRun) {
     out(JSON.stringify({ plan: { ...plan, rules: undefined } }, null, 2));
+    return 0;
+  }
+  if (opts.json && !plan.hasWork) {
+    out(JSON.stringify({ plan: { ...plan, rules: undefined }, stats: null }, null, 2));
     return 0;
   }
 
@@ -357,6 +363,45 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
   }
 
   const result = await purge(info, plan, purgeOpts);
+const verdict = result.verify;
+
+if (opts.json) {
+    out(
+      JSON.stringify(
+        {
+          repo: info.root,
+          engine: plan.resolvedEngine,
+          stats: result.native
+            ? {
+                commits: result.native.stats.commits,
+                prunedCommits: result.native.stats.prunedCommits,
+                removedFileChanges: result.native.stats.removedFileChanges,
+                rewrittenMessages: result.native.stats.rewrittenMessages,
+                droppedTags: result.native.stats.droppedTags,
+                droppedResets: result.native.stats.droppedResets,
+                droppedRefs: result.native.stats.droppedRefs,
+              }
+            : null,
+          passes: result.native?.passes ?? null,
+          remappedMessages: result.native?.remappedMessages ?? 0,
+          backup: result.backup
+            ? { bundle: result.backup.bundle, sizeBytes: result.backup.sizeBytes }
+            : null,
+          warnings: result.warnings,
+          verification: {
+            ok: verdict.ok,
+            commitsAfter: verdict.commitsAfter,
+            fsckOk: verdict.fsck.ok,
+            treeDiff: verdict.treeDiff,
+            notes: verdict.notes,
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    return verdict.ok ? 0 : 1;
+  }
 
   heading("result");
   if (result.native) {
@@ -370,7 +415,6 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
     out("  " + dim(result.filterRepoOutput.split("\n").slice(-3).join("\n  ")));
   }
 
-  const verdict = result.verify;
   out();
   out(
     verdict.ok
@@ -399,8 +443,11 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
 
   out();
   out(bold("Next steps"));
+  const remote = info.remotes.origin ?? "origin";
   const lines = [
-    `git push --force --branches --tags --prune ${info.remotes.origin ?? "origin"}`,
+    // `--tags` cannot be combined with `--branches`, so both are pushed as
+    // explicit refspecs instead.
+    `git push --force --prune ${remote} refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*`,
     "git reflog expire --expire=now --all && git gc --prune=now   # run on the remote/forks too",
     "tell collaborators to delete their clones and re-clone",
   ];

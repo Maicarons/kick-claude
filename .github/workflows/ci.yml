@@ -22,3 +22,20 @@ jobs:
       - run: bun test
       - run: bun run build
       - run: node dist/cli.js --version
+
+  action:
+    name: action bundle and harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: The committed action/cli.js must match the build
+        run: git diff --exit-code -- action/cli.js
+      - name: Exercise the action entry point like a runner does
+        run: bun run scripts/action-check.ts
+      - name: Smoke test the action bundle on Node
+        run: node action/cli.js --version

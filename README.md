@@ -171,6 +171,86 @@ was there.
 
 If you only want to stop new artifacts from appearing, use `clean` or `init`.
 
+## Use it in GitHub Actions
+
+The repository ships a first-class action, so a workflow can call it directly:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0            # required: a shallow clone hides commits
+
+- id: kick-claude
+  uses: Maicarons/kick-claude@v1
+  with:
+    command: purge
+    push: true
+```
+
+`fetch-depth: 0` matters. A shallow clone does not contain the history the tool
+needs to rewrite, and force pushing from one deletes the rest of the repository.
+The action detects a shallow clone and deepens it (`ensure-full-history`,
+default `true`), but fetching everything up front is cheaper.
+
+Or use the reusable workflow, which does the checkout for you:
+
+```yaml
+jobs:
+  scrub:
+    uses: Maicarons/kick-claude/.github/workflows/kick-claude.yml@v1
+    with:
+      command: purge
+      push: true
+    secrets: inherit
+```
+
+### What the action adds on top of the CLI
+
+- **Job summary** with the findings table, plus `::warning::` annotations.
+- **Real safety rails.** It refuses to force push from a `pull_request` event,
+  refuses to purge a dirty working tree, refuses `push` on non-purge commands,
+  and tells you exactly which permission is missing when a push fails.
+- **Unchanged-history fast path**: shallow-clone detection, a full fetch before
+  pushing, and `git fsck`/blob verification still run.
+
+### Inputs
+
+| input | default | meaning |
+| ----- | ------- | ------- |
+| `command` | `scan` | `scan`, `clean`, `init`, `purge` |
+| `path` | `.` | repository path, relative to the workspace |
+| `fail-on-findings` | `true` | fail the step when a scan finds something |
+| `secrets` | `false` | also look for credentials |
+| `extra-paths` | – | newline/comma separated extra rules |
+| `include-rules` / `exclude-rules` | – | rule ids |
+| `dry-run` | `false` | only print the plan |
+| `purge` | | `prune-empty`, `remap-hashes`, `include-reflog`, `engine` |
+| `push` | `false` | force push the rewritten history |
+| `push-remote` / `push-refspec` | `origin` / `--force --prune refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*` | |
+| `ensure-full-history` | `true` | deepen a shallow clone first |
+| `gc` | `false` | expire reflogs and repack (pointless on ephemeral runners) |
+| `token` | – | defaults to the credentials `actions/checkout` persists |
+| `summary` | `true` | write a job summary |
+
+Outputs: `found`, `paths`, `result`, `commits-seen`, `commits-pruned`,
+`files-removed`, `messages-rewritten`, `verification-ok`, `backup-bundle`,
+`pushed`.
+
+Force pushing rewritten history needs `permissions: contents: write` on the
+workflow, and the remote must allow force pushes. The action never pushes from
+`pull_request`, so a fork cannot rewrite your base branch.
+
+### Publishing to the Marketplace
+
+`action.yml` at the repository root is all the Marketplace needs. To list it:
+open the `action.yml` file view on GitHub → **Draft a release** → tick
+**Publish this Action to the GitHub Marketplace** → pick a primary category →
+publish. Accepting the Marketplace Developer Agreement and the 2FA prompt are
+manual steps that only the repository owner can perform.
+
+`uses: Maicarons/kick-claude@v1` works as soon as the `v1` tag exists, without
+the Marketplace listing.
+
 ## Programmatic API
 
 ```ts
@@ -210,13 +290,20 @@ for the cases where a second opinion is welcome. It is never used automatically.
 ```bash
 bun install
 bun test          # unit tests + an end-to-end purge against real temp repos
+bun run test:action   # drives action/index.cjs with fake runner env vars
 bun run typecheck
-bun run build     # dist/ bundle + .d.ts
+bun run build     # dist/ bundle + .d.ts + the committed action/cli.js copy
 ```
 
 The end-to-end test builds a repository with artifacts across merges, tags and
 commits that become empty, purges it, and asserts that every other blob, branch,
 tag and merge is untouched and that `git fsck` is clean.
+
+The action harness runs the real entry point with real `INPUT_*` and `GITHUB_*`
+environment variables against throwaway repositories — including a force push to
+a real bare remote that is then re-cloned and re-scanned. `action/cli.js` is a
+committed copy of the bundle so the action needs neither npm nor a build step on
+the runner; CI rebuilds it and fails if it differs, so it cannot go stale.
 
 ## License
 

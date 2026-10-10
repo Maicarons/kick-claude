@@ -59,6 +59,7 @@ export interface FilterStats {
   rewrittenMessages: number;
   droppedTags: number;
   droppedResets: number;
+  droppedRefs: number;
   hashCandidates: Set<string>;
   /** mark -> original commit oid */
   markToOid: Map<number, string>;
@@ -147,6 +148,13 @@ export class FastExportFilter {
   /** mark -> reference usable by later commands (`:N`, a raw sha, or ""). */
   private resolved = new Map<number, string>();
 
+  /** ref -> whether the last commit seen for it was pruned, and where to. */
+  private readonly refsWithPrunedTips = new Map<string, { pruned: boolean; fallback: string }>();
+  /** Refs that received at least one surviving commit. */
+  private readonly refsWithSurvivingCommits = new Set<string>();
+  /** Refs already deleted with an explicit `reset`, to avoid duplicates. */
+  private readonly deletedRefs = new Set<string>();
+
   private readonly stats: FilterStats = {
     commits: 0,
     prunedCommits: 0,
@@ -154,6 +162,7 @@ export class FastExportFilter {
     rewrittenMessages: 0,
     droppedTags: 0,
     droppedResets: 0,
+    droppedRefs: 0,
     hashCandidates: new Set(),
     markToOid: new Map(),
     marks: new Set(),
@@ -197,6 +206,24 @@ export class FastExportFilter {
       if (line === "done") continue; // emitted once at the very end
       await this.write(line + "\n");
     }
+
+    // Repoint or delete refs whose tip commit was pruned. Without this,
+    // fast-import leaves the original ref (and therefore the original commits
+    // with their Claude artifacts in them) exactly where it was.
+    for (const [ref, info] of this.refsWithPrunedTips) {
+      if (!info.pruned || this.refsWithSurvivingCommits.has(ref)) continue;
+      if (this.deletedRefs.has(ref)) continue;
+      this.deletedRefs.add(ref);
+      if (info.fallback !== "") {
+        await this.write(`reset ${quotePath(ref)}\nfrom ${quotePath(info.fallback)}\n`);
+      } else {
+        // Nothing at all survives below this ref, so there is nothing to point
+        // it at; drop it rather than leave it on the old objects.
+        await this.write(`reset ${quotePath(ref)}\n`);
+        this.stats.droppedRefs++;
+      }
+    }
+
     await this.write("done\n");
     return this.stats;
   }
@@ -279,11 +306,20 @@ export class FastExportFilter {
     const wouldOrphanBranch = survivingParents.length === 0;
     const prune = this.opts.pruneEmpty && becomesEmpty && !wouldOrphanBranch;
 
+    // Track refs whose tip commit was pruned. `fast-import` only ever creates
+    // or updates the refs it is told about, so a ref whose tip disappeared would
+    // otherwise keep pointing at the *old* commits and the artifacts would
+    // survive there. Such refs are repointed to the nearest surviving ancestor
+    // (or deleted when nothing survives) once the stream ends.
+    this.refsWithPrunedTips.set(ref, { pruned: prune, fallback: resolvedParents[0] ?? "" });
+
     if (prune) {
       this.stats.prunedCommits++;
       if (mark) this.prunedMark(mark, survivingParents[0] ?? "");
       return;
     }
+
+    this.refsWithSurvivingCommits.add(ref);
 
     if (mark) {
       this.resolved.set(mark, `:${mark}`);

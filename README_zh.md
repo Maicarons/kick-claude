@@ -145,6 +145,80 @@ git reflog expire --expire=now --all && git gc --prune=now --aggressive   # 远�
 
 如果你只是想阻止今后再产生这些文件，用 `clean` 或 `init` 就够了。
 
+## 在 GitHub Actions 中使用
+
+本仓库自带一个官方 Action，工作流可以直接调用：
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0            # 必须：浅克隆会隐藏历史
+
+- id: kick-claude
+  uses: Maicarons/kick-claude@v1
+  with:
+    command: purge
+    push: true
+```
+
+`fetch-depth: 0` 很重要。浅克隆里没有工具改写所需的历史，基于它 force push 会把
+其余历史全部删掉。Action 会检测浅克隆并自动补全（`ensure-full-history`，默认开启），
+但一开始就把完整历史取下来更省事。
+
+也可以直接用可复用工作流，它已经帮你做好了 checkout：
+
+```yaml
+jobs:
+  scrub:
+    uses: Maicarons/kick-claude/.github/workflows/kick-claude.yml@v1
+    with:
+      command: purge
+      push: true
+    secrets: inherit
+```
+
+### Action 在 CLI 之上额外做的事
+
+- **Job Summary**：输出发现项表格，以及 `::warning::` 标注。
+- **真正的安全护栏**：拒绝在 `pull_request` 事件下 force push；拒绝在脏工作区下
+  purge；拒绝在非 purge 命令下使用 `push`；push 失败时明确告诉你缺哪个权限。
+- **快速路径**：浅克隆检测、push 前完整 fetch，以及 `git fsck` 与 blob 校验照常执行。
+
+### 输入
+
+| input | 默认值 | 说明 |
+| ----- | ------ | ---- |
+| `command` | `scan` | `scan` / `clean` / `init` / `purge` |
+| `path` | `.` | 仓库路径，相对工作区 |
+| `fail-on-findings` | `true` | scan 发现问题时让步骤失败 |
+| `secrets` | `false` | 同时检测凭据 |
+| `extra-paths` | – | 换行或逗号分隔的额外规则 |
+| `include-rules` / `exclude-rules` | – | 规则 id |
+| `dry-run` | `false` | 只出计划 |
+| `purge` 相关 | | `prune-empty`、`remap-hashes`、`include-reflog`、`engine` |
+| `push` | `false` | force push 改写后的历史 |
+| `push-remote` / `push-refspec` | `origin` / `--force --prune refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*` | |
+| `ensure-full-history` | `true` | 先补全浅克隆 |
+| `gc` | `false` | 清 reflog 并重新打包（临时 runner 上没意义） |
+| `token` | – | 默认复用 `actions/checkout` 持久化的凭据 |
+| `summary` | `true` | 写 job summary |
+
+输出：`found`、`paths`、`result`、`commits-seen`、`commits-pruned`、
+`files-removed`、`messages-rewritten`、`verification-ok`、`backup-bundle`、`pushed`。
+
+force push 改写后的历史需要在工作流上声明 `permissions: contents: write`，且远端允许
+force push。Action 绝不会在 `pull_request` 下 push，因此 fork 无法改写你的主分支。
+
+### 发布到 Marketplace
+
+Marketplace 只需要仓库根目录的 `action.yml`。上架步骤：在 GitHub 上打开
+`action.yml` 文件页面 → **Draft a release** → 勾选
+**Publish this Action to the GitHub Marketplace** → 选择主分类 → 发布。
+接受 Marketplace Developer Agreement 与两步验证是只有仓库所有者才能完成的
+手动步骤。
+
+只要 `v1` 标签存在，`uses: Maicarons/kick-claude@v1` 就能用，无需先上架 Marketplace。
+
 ## 作为库使用
 
 ```ts
@@ -177,11 +251,17 @@ console.log(result.stats, result.verification);
 ```bash
 bun install
 bun test          # 单元测试 + 针对真实临时仓库的端到端 purge
+bun run test:action   # 用模拟的 runner 环境变量驱动 action/index.cjs
 bun run typecheck
-bun run build     # dist/ bundle 与 .d.ts
+bun run build     # dist/ bundle、.d.ts 以及提交进仓库的 action/cli.js 副本
 ```
 
 端到端测试会构造一个包含 merge、tag 以及"会变空的提交"的仓库，对其执行 purge，然后断言其余每个 blob、分支、tag 与 merge 都未被改动，且 `git fsck` 干净。
+
+Action 测试用真实的 `INPUT_*` 与 `GITHUB_*` 环境变量驱动真实入口，并覆盖到"向真实
+bare 远端 force push 后重新 clone 再扫描"这一段。`action/cli.js` 是提交进仓库的
+bundle 副本，因此 Action 在 runner 上既不需要 npm 也不需要构建步骤；CI 会重新构建
+并在不一致时失败，所以它不会变成陈旧产物。
 
 ## 许可证
 

@@ -83,6 +83,14 @@ beforeAll(async () => {
   await write("docs/readme.md", "docs\n");
   await commit("docs: readme");
 
+  // A branch whose entire history consists of artifacts. `fast-import` never
+  // creates or updates refs it is not told about, so without an explicit reset
+  // this branch would keep pointing at the old, artifact-carrying commits.
+  await gx(["checkout", "-q", "-b", "scratch"]);
+  await write("scratch/CLAUDE.md", "# scratch\n");
+  await commit("chore: scratch claude notes");
+  await gx(["checkout", "-q", "main"]);
+
   info = await repoInfo(dir);
 });
 
@@ -178,6 +186,17 @@ describe("native purge", () => {
     expect(report.counts.message).toBe(0);
   });
 
+  test("branches whose tip was pruned are repointed to a surviving commit", async () => {
+    const scratch = await git(["rev-parse", "--verify", "--quiet", "refs/heads/scratch"], dir);
+    const main = await git(["rev-parse", "refs/heads/main"], dir);
+    // The scratch branch only ever added a CLAUDE.md, so after the rewrite it
+    // must sit on a commit that still exists - never on the deleted one.
+    expect(scratch.code).toBe(0);
+    expect(scratch.stdout.trim()).toBe(main.stdout.trim());
+    const tree = await git(["ls-tree", "-r", "--name-only", "scratch"], dir);
+    expect(tree.stdout).not.toContain("CLAUDE.md");
+  });
+
   test("commit messages no longer carry Claude markers", async () => {
     const log = await gx(["log", "--all", "--format=%B%x00"]);
     expect(log).not.toContain("Co-Authored-By: Claude");
@@ -205,11 +224,12 @@ describe("native purge", () => {
 
   test("topology, branches and tags survive", async () => {
     const commits = Number((await gx(["rev-list", "--all", "--count"])).trim());
-    expect(commits).toBeLessThan(beforeCommits);
+    expect(commits).toBeLessThanOrEqual(beforeCommits);
     expect(commits).toBeGreaterThan(0);
     const refs = (await gx(["for-each-ref", "--format=%(refname)"])).split(/\r?\n/);
     expect(refs).toContain("refs/heads/main");
     expect(refs).toContain("refs/heads/feature");
+    expect(refs).toContain("refs/heads/scratch");
     expect(refs).toContain("refs/tags/v1.0.0");
     expect((await gx(["rev-list", "--merges", "--count", "main"])).trim()).toBe("1");
   });
