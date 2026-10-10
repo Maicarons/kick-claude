@@ -56,6 +56,7 @@ jobs:
         run: |
           # This repository has no Claude artifacts, so `found` must be false.
           test "${{ steps.kick-claude.outputs.found }}" = "false"
-          # `result` is the JSON report and is always emitted for scan.
-          test -n "${{ steps.kick-claude.outputs.result }}"
-          echo "${{ steps.kick-claude.outputs.result }}" | jq -e '.counts.worktree == 0'
+          # `result` is the JSON report and is always emitted for scan. Write it
+          # with single quotes: the JSON itself contains double quotes.
+          echo '${{ steps.kick-claude.outputs.result }}' > report.json
+          jq -e '.counts.worktree == 0' report.json
