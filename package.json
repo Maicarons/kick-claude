@@ -1,0 +1,59 @@
+{
+  "name": "kick-claude",
+  "version": "0.1.0",
+  "description": "Detect and losslessly purge Claude Code collaboration artifacts (CLAUDE.md, .claude/, .mcp.json ...) from a git repository — working tree and full history.",
+  "keywords": [
+    "git",
+    "git-filter-repo",
+    "claude",
+    "claude-code",
+    "CLAUDE.md",
+    "history",
+    "purge",
+    "cleanup",
+    "fast-export",
+    "fast-import"
+  ],
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "kick-claude": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README_zh.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maicarons/kick-claude.git"
+  },
+  "homepage": "https://github.com/Maicarons/kick-claude#readme",
+  "bugs": {
+    "url": "https://github.com/Maicarons/kick-claude/issues"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "packageManager": "bun@1.3.1"
+}
