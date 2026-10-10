@@ -1667,9 +1667,16 @@ async function planPurge(info, opts, filterRepoAvailable) {
   const report = await scan(info, opts.scan);
   const commits = await commitCount(info);
   const resolvedEngine = opts.engine === "filter-repo" && filterRepoAvailable ? "filter-repo" : "native";
+  const historyPaths = report.paths;
+  const [historyOccurrences, messageMentions] = await Promise.all([
+    countHistoryOccurrences(info, historyPaths),
+    countMessageMentions(info, opts, historyPaths)
+  ]);
   return {
     artifactPaths: report.paths,
     historyPathCount: report.findings.filter((f) => f.scope === "history").length,
+    historyOccurrences,
+    messageMentions,
     messageCount: report.findings.filter((f) => f.scope === "message").length,
     commits,
     rules,
@@ -1677,6 +1684,81 @@ async function planPurge(info, opts, filterRepoAvailable) {
     resolvedEngine,
     hasWork: report.findings.length > 0
   };
+}
+async function countHistoryOccurrences(info, paths) {
+  if (paths.length === 0)
+    return 0;
+  const r = await git(["log", "--all", "--format=%x00", "--name-only", "--no-renames", ...paths], info.root);
+  if (r.code !== 0)
+    return 0;
+  let count = 0;
+  for (const record of r.stdout.split("\x00")) {
+    for (const line of record.split(`
+`)) {
+      if (line.trim())
+        count++;
+    }
+  }
+  return count;
+}
+async function countMessageMentions(info, opts, paths) {
+  if (paths.length === 0 || opts.scan.messages === false)
+    return 0;
+  const r = await git(["log", "--all", "--format=%B%x00"], info.root);
+  if (r.code !== 0)
+    return 0;
+  let count = 0;
+  for (const message of r.stdout.split("\x00")) {
+    if (!message.trim())
+      continue;
+    if (paths.some((p) => mentions(message, p)))
+      count++;
+  }
+  return count;
+}
+function mentions(message, path) {
+  const base = path.split("/").pop() ?? path;
+  return message.includes(path) || new RegExp(`(^|[^\\w./-])${escapeRe3(base)}([^\\w.-]|$)`, "m").test(message);
+}
+function escapeRe3(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function stripMentionLines(message, paths) {
+  if (paths.length === 0)
+    return message;
+  const lines = message.split(`
+`);
+  const subject = lines[0] ?? "";
+  const body = lines.slice(1);
+  const cleanedSubject = subject ? removeMentions(subject, paths) : subject;
+  const keptBody = body.filter((line) => line.trim() === "" || !isArtifactBullet(line, paths));
+  const out2 = [cleanedSubject, ...keptBody].join(`
+`).replace(/\n{3,}/g, `
+
+`);
+  return out2.replace(/^\n+/, "").replace(/\n+$/, `
+`);
+}
+function isArtifactBullet(line, paths) {
+  const body = line.replace(/^[\s>*_-]+/, "").trimStart();
+  if (!body)
+    return false;
+  return paths.some((p) => {
+    const base = p.split("/").pop() ?? p;
+    return body.startsWith(p) || body.startsWith(base + ":") || body.startsWith(base + "：");
+  });
+}
+function removeMentions(line, paths) {
+  let out2 = line;
+  for (const p of paths) {
+    const base = p.split("/").pop() ?? p;
+    for (const name of new Set([p, base])) {
+      if (!name)
+        continue;
+      out2 = out2.replace(new RegExp(`(^|[^\\w.-])[ \\t]*${escapeRe3(name)}(?![\\w-])`, "g"), "$1");
+    }
+  }
+  return out2.replace(/[ \t]{2,}/g, " ").trimEnd();
 }
 async function purge(info, plan, opts) {
   const warnings = [];
@@ -1723,6 +1805,9 @@ ${r.output}`);
       pruneEmpty: opts.pruneEmpty,
       remapHashes: opts.remapHashes,
       workDir,
+      ...opts.scrubMessageMentions ? {
+        filterMessage: (message) => stripMentionLines(defaultMessageFilter(message), plan.artifactPaths)
+      } : {},
       log: (m) => opts.log(dim(m))
     });
   }
@@ -1772,6 +1857,7 @@ var OPTION_SPEC = {
   backup: { type: "boolean" },
   "no-backup": { type: "boolean" },
   "keep-old": { type: "boolean" },
+  "scrub-mentions": { type: "boolean" },
   engine: { type: "string" },
   "no-prune": { type: "boolean" },
   "no-remap": { type: "boolean" },
@@ -1957,6 +2043,7 @@ async function cmdPurge(opts, v) {
     assumeYes: opts.assumeYes,
     force: opts.force,
     keepOldObjects: Boolean(v["keep-old"]),
+    scrubMessageMentions: Boolean(v["scrub-mentions"]),
     scan: opts.scan,
     log: (m) => {
       if (opts.verbose)
@@ -1977,8 +2064,11 @@ async function cmdPurge(opts, v) {
   out(`  branch       ${info.branch ?? gray("(detached)")}`);
   out(`  commits      ${plan.commits}`);
   out(`  engine       ${plan.resolvedEngine}`);
-  out(`  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyPathCount} historical occurrence(s)`);
+  out(`  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyOccurrences} historical occurrence(s)`);
   out(`  messages     ${plan.messageCount} commit message(s) with Claude markers`);
+  if (plan.messageMentions > 0) {
+    out(`  mentions     ${plan.messageMentions} commit message(s) still mention a removed path` + (v["scrub-mentions"] ? " (being scrubbed)" : dim("  (--scrub-mentions to remove)")));
+  }
   out(`  options      prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`);
   out();
   if (!plan.hasWork) {
@@ -2132,6 +2222,7 @@ function printHelp(topic) {
     "    --no-remap           Do not rewrite hash references inside commit messages",
     "    --no-backup          Skip the pre-rewrite git bundle",
     "    --keep-old           Do not expire reflogs / gc after the rewrite",
+    "    --scrub-mentions      Also delete message lines that mention a removed path",
     "    --dry-run            Print the plan and exit",
     "    -y, --yes            Do not ask for confirmation",
     "    --force              Rewrite even with a dirty working tree",
@@ -2156,6 +2247,6 @@ main().then((code) => process.exit(code), (e) => {
   process.exit(2);
 });
 
-//# debugId=61044E296388120E64756E2164756E21
+//# debugId=610B32DABBBB726764756E2164756E21
 
-// kick-claude-source-hash: 357a8c08c492f796
+// kick-claude-source-hash: 620dd74ffd789771

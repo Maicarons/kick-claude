@@ -60,6 +60,7 @@ const OPTION_SPEC = {
   backup: { type: "boolean" },
   "no-backup": { type: "boolean" },
   "keep-old": { type: "boolean" },
+  "scrub-mentions": { type: "boolean" },
   engine: { type: "string" },
   "no-prune": { type: "boolean" },
   "no-remap": { type: "boolean" },
@@ -298,6 +299,7 @@ async function cmdPurge(opts: Options, v: Record<string, unknown>): Promise<numb
     assumeYes: opts.assumeYes,
     force: opts.force,
     keepOldObjects: Boolean(v["keep-old"]),
+    scrubMessageMentions: Boolean(v["scrub-mentions"]),
     scan: opts.scan,
     log: (m) => {
       if (opts.verbose) out(dim(m));
@@ -323,9 +325,15 @@ if (opts.json && opts.dryRun) {
   out(`  commits      ${plan.commits}`);
   out(`  engine       ${plan.resolvedEngine}`);
   out(
-    `  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyPathCount} historical occurrence(s)`,
+    `  paths        ${plan.artifactPaths.length} artifact path(s), ${plan.historyOccurrences} historical occurrence(s)`,
   );
   out(`  messages     ${plan.messageCount} commit message(s) with Claude markers`);
+  if (plan.messageMentions > 0) {
+    out(
+      `  mentions     ${plan.messageMentions} commit message(s) still mention a removed path` +
+        (v["scrub-mentions"] ? " (being scrubbed)" : dim("  (--scrub-mentions to remove)")),
+    );
+  }
   out(
     `  options      prune-empty=${purgeOpts.pruneEmpty} remap-hashes=${purgeOpts.remapHashes} backup=${purgeOpts.backup}`,
   );
@@ -518,6 +526,7 @@ function printHelp(topic?: string): void {
       "    --no-remap           Do not rewrite hash references inside commit messages",
       "    --no-backup          Skip the pre-rewrite git bundle",
       "    --keep-old           Do not expire reflogs / gc after the rewrite",
+      "    --scrub-mentions      Also delete message lines that mention a removed path",
       "    --dry-run            Print the plan and exit",
       "    -y, --yes            Do not ask for confirmation",
       "    --force              Rewrite even with a dirty working tree",

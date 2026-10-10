@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileRule, DEFAULT_RULES, SECRET_PATTERNS, DEFAULT_MESSAGE_RULES } from "../src/rules.ts";
 import { defaultMessageFilter, quotePath, unquotePath } from "../src/purge/stream.ts";
 import { resolveRules } from "../src/detect.ts";
+import { stripMentionLines } from "../src/purge/index.ts";
 
 const matchers = DEFAULT_RULES.map(compileRule);
 const match = (p: string) => matchers.find((r) => r.test(p));
@@ -99,6 +100,43 @@ describe("path quoting", () => {
 
   test("decodes octal escapes like git emits", () => {
     expect(unquotePath('"caf\\303\\251.md"')).toBe("café.md");
+  });
+});
+
+describe("message mention scrubbing", () => {
+  test("keeps the subject line instead of promoting a body line", () => {
+    const msg = "docs: 重写 README.md 并新增 CLAUDE.md\n\n- CLAUDE.md: 新增指引文件\n";
+    const out = stripMentionLines(msg, ["CLAUDE.md"]);
+    expect(out.split("\n")[0]).toBe("docs: 重写 README.md 并新增");
+    expect(out).not.toContain("- CLAUDE.md:");
+  });
+
+  test("does not eat the space in an unrelated dotted filename", () => {
+    // Regression: a naive "tidy the punctuation" pass turned this into
+    // "Update.gitignore".
+    expect(stripMentionLines("Update .gitignore\n", ["CLAUDE.md"])).toBe("Update .gitignore\n");
+    expect(stripMentionLines("bump v1.2.3 and .mcp.json\n", [".mcp.json"])).toBe(
+      "bump v1.2.3 and\n"
+    );
+  });
+
+  test("does not touch a longer identifier that merely ends with the name", () => {
+    expect(stripMentionLines("add MY_CLAUDE.md helper\n", ["CLAUDE.md"])).toBe(
+      "add MY_CLAUDE.md helper\n"
+    );
+  });
+
+  test("keeps prose that merely mentions the artifact", () => {
+    // Regression: dropping every mentioning line deleted a sentence that also
+    // described files which still exist.
+    const msg =
+      "refactor: decouple modules\n\nUpdate docs (AGENTS.md, CLAUDE.md, architecture) for the new packages.\n";
+    expect(stripMentionLines(msg, ["CLAUDE.md"])).toBe(msg);
+  });
+
+  test("leaves unrelated messages alone", () => {
+    const msg = "feat(core): 添加中国象棋人机对弈系统核心功能\n";
+    expect(stripMentionLines(msg, ["CLAUDE.md"])).toBe(msg);
   });
 });
 
