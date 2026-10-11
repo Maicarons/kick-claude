@@ -316,6 +316,9 @@ for the cases where a second opinion is welcome. It is never used automatically.
 ```bash
 bun install
 bun test          # unit tests + an end-to-end purge against real temp repos
+                  # (`bun run test` adds a 30s per-test timeout: the e2e fixture
+                  #  builds a real repository with ~31 git calls and needs more
+                  #  than Bun's 5s default on a slow runner)
 bun run test:action   # drives action/index.cjs with fake runner env vars
 bun run typecheck
 bun run build     # dist/ bundle + .d.ts + the committed action/cli.js copy
