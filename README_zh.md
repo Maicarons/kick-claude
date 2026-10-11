@@ -26,6 +26,10 @@ kick-claude --version
 npx kick-claude scan
 ```
 
+> **说明：** 发布靠推送 `v*` tag 触发，npm 包也是那时才发布。在本工作流落地后的
+> 第一个 tag 之前，npm 上的最新版本可能落后于仓库 —— 若 CLI 缺少你期望的东西，
+> 请看[发布页](https://github.com/Maicarons/kick-claude/releases)。
+
 ## 快速开始
 
 ```bash
@@ -302,6 +306,30 @@ CI 在 `bun run build` 的前后各跑一次该检查，`action/cli.js` 在 `.gi
 被标记为 `-text`，git 不会改写它。改动 `src/` 下任何内容后，请执行
 `bun run build && git add action/cli.js`，并把 bundle 放在同一个改动里提交，否则 CI
 会失败。
+
+### 发布
+
+发布是手工的：**tag 就是发布**，`package.json` 跟在它后面。没有 release-please
+或 changesets 之类的机器人替你决定版本号 —— 版本号是一种判断：purge 默认行为的
+breaking change 就是 `2.0.0`，不该由工具挑一个数字。
+
+1. 把改动写进 `CHANGELOG.md` 的 `[Unreleased]`，然后把该节改名为要发布的版本号。
+2. 把 `package.json#version` 设为同一个版本号（不带 `v`）。
+3. 两者一起提交，然后给这个提交打 tag：`git tag v1.2.3 && git push origin v1.2.3`。
+
+推送 tag 会触发 `release.yml`，它会：
+
+- 若 `package.json#version` 与 tag 不一致就失败 —— 版本对不上的 tag 不会发布任何东西；
+- 在 tag 上重跑 typecheck、测试与构建，且不依赖 `ci.yml`，因此发布从不寄望于另一个
+  工作流碰巧跑过；
+- 检查已提交的 `action/cli.js` 与源码是否一致，在重新构建**前后各一次** —— 确保 tag
+  发出的 bundle 就是源码能产出的那个；
+- 带 **provenance** 发布到 npm（`id-token: write` + `npm publish --provenance`），
+  使 tarball 可追溯到构建它的那次工作流运行；
+- 创建 GitHub Release，说明取自 `CHANGELOG.md` 中该版本那一节，而非提交日志。
+
+npm 凭据是仓库 secret（`NPM_TOKEN`），永远不会以字面量出现在工作流里。发布是最后
+一步，所有门禁都在它之前，因为 npm 的版本号一旦用过就不能再用。
 
 ## 许可证
 
