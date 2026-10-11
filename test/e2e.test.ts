@@ -185,6 +185,17 @@ describe("scan", () => {
     expect(report.counts.secret).toBeGreaterThan(0);
     expect(report.hasSecrets).toBe(true);
   });
+
+  // The history walk marks each commit with a bare NUL (`--pretty=format:%x00`).
+  // Treating that sentinel as a path made us pass a NUL to `git log -- <path>`,
+  // where Node refuses it: "must be a string without null bytes", exit 2.
+  test("a rule broad enough to match the history sentinel does not crash", async () => {
+    for (const spec of ["regex:.", "regex:^"]) {
+      const report = await scan(info, { extraSpecs: [spec] });
+      expect(report.paths.some((p) => p.includes("\0"))).toBe(false);
+      expect(report.findings.some((f) => f.path?.includes("\0"))).toBe(false);
+    }
+  });
 });
 
 describe("native purge", () => {

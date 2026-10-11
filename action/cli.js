@@ -458,11 +458,13 @@ async function scan(info, opts = {}) {
       logArgs.push("--reflog");
     const logRun = await git(logArgs, info.root);
     if (logRun.code === 0) {
-      for (const line of logRun.stdout.split(`
+      for (const record of logRun.stdout.split("\x00")) {
+        for (const line of record.split(`
 `)) {
-        const p = line.trim();
-        if (p)
-          historyPaths.add(p);
+          const p = line.trim();
+          if (p)
+            historyPaths.add(p);
+        }
       }
     }
   }
@@ -2262,6 +2264,6 @@ main().then((code) => process.exit(code), (e) => {
   process.exit(2);
 });
 
-//# debugId=7AA7EEA39DD496B264756E2164756E21
+//# debugId=DE8DC4E578BCFACA64756E2164756E21
 
-// kick-claude-source-hash: f1b236c422b44706
+// kick-claude-source-hash: 9c0f8318135d5535

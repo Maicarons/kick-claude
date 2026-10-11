@@ -241,9 +241,17 @@ export async function scan(info: RepoInfo, opts: ScanOptions = {}): Promise<Scan
     if (opts.includeReflog) logArgs.push("--reflog");
     const logRun = await git(logArgs, info.root);
     if (logRun.code === 0) {
-      for (const line of logRun.stdout.split("\n")) {
-        const p = line.trim();
-        if (p) historyPaths.add(p);
+      // `--pretty=format:%x00` emits a bare NUL per commit as the separator, so
+      // the stream is `\0\npath\npath\n\0\npath…`. Splitting on `\n` alone
+      // leaves that sentinel as a "path" line, and a user rule broad enough to
+      // match it (`--path regex:.`) made us hand the NUL to `git log -- …`,
+      // where Node rejects it: `must be a string without null bytes`. Cut the
+      // stream on the sentinel first, then take whole lines from each record.
+      for (const record of logRun.stdout.split("\0")) {
+        for (const line of record.split("\n")) {
+          const p = line.trim();
+          if (p) historyPaths.add(p);
+        }
       }
     }
   }
