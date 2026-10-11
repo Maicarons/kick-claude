@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -23,6 +24,7 @@ jobs:
       - run: bun test
       - run: bun run build
       - name: CLI reports the package version (tag pushes must match)
+        shell: bash
         run: |
           reported=$(node dist/cli.js --version)
           pkg_version=$(node -p "require('./package.json').version")
