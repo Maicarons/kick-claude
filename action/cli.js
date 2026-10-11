@@ -2264,4 +2264,4 @@ main().then((code) => process.exit(code), (e) => {
 
 //# debugId=7AA7EEA39DD496B264756E2164756E21
 
-// kick-claude-source-hash: a239f229131c09ed
+// kick-claude-source-hash: f1b236c422b44706

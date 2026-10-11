@@ -51,8 +51,16 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun run build
+      # Order matters: `bun run build` rewrites action/cli.js from the current
+      # sources, so the guard is run BEFORE it (it reads the committed copy out
+      # of git, which is what `uses: Maicarons/kick-claude@v1` downloads) and
+      # again AFTER it (the rebuild has to land on the same stamp). Running it
+      # only after the build - as it did before - compares the bundle with
+      # itself and can never fail.
       - name: The committed action/cli.js must match the current sources
+        run: bun run scripts/check-action-bundle.ts
+      - run: bun run build
+      - name: A fresh build reproduces the committed action/cli.js
         run: bun run scripts/check-action-bundle.ts
       - name: Exercise the action entry point like a runner does
         run: bun run scripts/action-check.ts
