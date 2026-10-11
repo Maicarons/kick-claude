@@ -1,0 +1,128 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything a release needs must be true before anything irreversible
+  # happens. An npm version can never be reused, so publishing is the last
+  # step and every gate runs before it - independently of ci.yml, so that a
+  # release can never depend on another workflow having happened to run.
+  verify:
+    name: verify the tag is releasable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - run: bun install --frozen-lockfile
+
+      - name: The tag must match package.json
+        run: |
+          set -euo pipefail
+          pkg=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          echo "package.json: $pkg"
+          echo "tag:          $tag"
+          if [ "$pkg" != "$tag" ]; then
+            echo "error: version mismatch - package.json is $pkg, the tag is $tag"
+            echo "Bump package.json to $tag in the commit you tag."
+            exit 1
+          fi
+        shell: bash
+
+      - name: The committed action bundle must match the sources
+        run: bun run scripts/check-action-bundle.ts
+
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+
+      - name: A fresh build reproduces the committed action bundle
+        run: bun run scripts/check-action-bundle.ts
+
+      - name: Show what would be published
+        run: npm pack --dry-run
+
+  publish-npm:
+    name: publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    # `id-token: write` is what lets npm sign provenance: the tarball is
+    # attested to this exact workflow run. See docs/agents/triage-labels.md
+    # note in the PR; the publish credential itself is a repository secret,
+    # never a literal in this file.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+      # npm publish runs prepublishOnly, which is `bun run build` - so bun has
+      # to exist here, not only in the verify job.
+      - run: bun install --frozen-lockfile
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    name: create the GitHub release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The release notes come out of CHANGELOG.md, which is the curated source
+      # of truth - not out of the commit log, which would just re-list the PRs.
+      - name: Take the release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v tag="$tag" '
+            $0 ~ "^## \\[" tag "\\]" { found = 1; next }
+            found && /^## \[/          { exit }
+            found                      { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::no [$tag] section in CHANGELOG.md - falling back to generated notes"
+            rm -f notes.md
+          fi
+        shell: bash
+      - name: Publish the release
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists - leaving it alone"
+            exit 0
+          fi
+          if [ -f notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash

@@ -36,6 +36,12 @@ Without installing:
 npx kick-claude scan
 ```
 
+> **Note:** releases are cut by pushing a `v*` tag, which is what publishes to
+> npm. Until the first tag pushed after this workflow landed, the latest npm
+> version may lag behind the repository — check
+> [the releases page](https://github.com/Maicarons/kick-claude/releases) if the
+> CLI does not have what you expect.
+
 ## Quick start
 
 ```bash
@@ -347,6 +353,35 @@ CI runs the guard both before and after `bun run build`, and `action/cli.js` is
 marked `-text` in `.gitattributes` so git never rewrites it. If you change
 anything under `src/`, run `bun run build && git add action/cli.js` and commit
 the bundle in the same change — otherwise CI fails.
+
+### Releasing
+
+Releases are cut by hand: **the tag is the release**, and `package.json` follows
+it. There is no release-please or changesets bot deciding versions, because the
+version is a judgement — a breaking change to the purge defaults is `2.0.0`, not
+a number a tool should pick.
+
+1. Put the changes under `[Unreleased]` in `CHANGELOG.md`, then rename that
+   section to the version you are releasing.
+2. Set `package.json#version` to the same version, without the `v`.
+3. Commit both, then tag the commit: `git tag v1.2.3 && git push origin v1.2.3`.
+
+Pushing the tag runs `release.yml`, which:
+
+- fails unless `package.json#version` equals the tag — nothing publishes from a
+  mismatched tag;
+- re-runs the typecheck, the tests and the build on the tag, independently of
+  `ci.yml`, so a release never rests on another workflow having happened to run;
+- checks the committed `action/cli.js` matches the sources, before *and* after a
+  rebuild — so the bundle the tag ships is the bundle the sources produce;
+- publishes to npm with **provenance** (`id-token: write` + `npm publish
+  --provenance`), so the tarball is attested to the workflow run that built it;
+- creates the GitHub release, taking its notes from that version's section in
+  `CHANGELOG.md` rather than from the commit log.
+
+The npm credential is a repository secret (`NPM_TOKEN`); it is never a literal in
+the workflow. Publishing is the last step and every gate runs before it, because
+an npm version can never be reused.
 
 ## License
 
