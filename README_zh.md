@@ -279,9 +279,29 @@ bun run build     # dist/ bundle、.d.ts 以及提交进仓库的 action/cli.js 
 端到端测试会构造一个包含 merge、tag 以及"会变空的提交"的仓库，对其执行 purge，然后断言其余每个 blob、分支、tag 与 merge 都未被改动，且 `git fsck` 干净。
 
 Action 测试用真实的 `INPUT_*` 与 `GITHUB_*` 环境变量驱动真实入口，并覆盖到"向真实
-bare 远端 force push 后重新 clone 再扫描"这一段。`action/cli.js` 是提交进仓库的
-bundle 副本，因此 Action 在 runner 上既不需要 npm 也不需要构建步骤；CI 会重新构建
-并在不一致时失败，所以它不会变成陈旧产物。
+bare 远端 force push 后重新 clone 再扫描"这一段。
+
+### 为什么 `action/cli.js` 要提交进仓库
+
+`uses: Maicarons/kick-claude@v1` 下载的是仓库里**已提交**的内容，所以 bundle 必须
+存在于 git 中：有了它，Action 在 runner 上既不需要 npm 也不需要构建步骤，也不会因为
+registry 不可达而失败。
+
+代价是这份提交副本可能与它当初所基于的源码漂移，因此 `scripts/build.ts` 会给它盖上
+一个 `src/` 下所有文件的散列戳（`// kick-claude-source-hash: <16 位十六进制>`），
+由 `scripts/check-action-bundle.ts` 校验。有两点让这个检查真正有效而非装饰：
+
+- 它从 **git 里**读 bundle（`git show HEAD:action/cli.js`），而不是读磁盘文件。真正
+  发布出去的是提交副本；而 CI 自己也会跑 `bun run build`，构建会覆写 `action/cli.js`
+  —— 只比对工作区文件的话，等于永远在拿 bundle 跟它自己比；
+- 散列前会把换行统一成 LF。否则这个戳会依赖检出环境：`core.autocrlf` 会让这些文件在
+  Windows 工作区变成 CRLF，在那里构建就会盖上一个 Linux runner 无法复现的戳 —— 而这
+  正是这个戳本该抓到的漂移。
+
+CI 在 `bun run build` 的前后各跑一次该检查，`action/cli.js` 在 `.gitattributes` 里
+被标记为 `-text`，git 不会改写它。改动 `src/` 下任何内容后，请执行
+`bun run build && git add action/cli.js`，并把 bundle 放在同一个改动里提交，否则 CI
+会失败。
 
 ## 许可证
 

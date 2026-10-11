@@ -321,9 +321,32 @@ tag and merge is untouched and that `git fsck` is clean.
 
 The action harness runs the real entry point with real `INPUT_*` and `GITHUB_*`
 environment variables against throwaway repositories — including a force push to
-a real bare remote that is then re-cloned and re-scanned. `action/cli.js` is a
-committed copy of the bundle so the action needs neither npm nor a build step on
-the runner; CI rebuilds it and fails if it differs, so it cannot go stale.
+a real bare remote that is then re-cloned and re-scanned.
+
+### Why `action/cli.js` is committed
+
+`uses: Maicarons/kick-claude@v1` downloads the repository as it is committed, so
+the bundle has to live in git: with it, the action needs neither npm nor a build
+step on the runner, and it cannot break because the registry is unreachable.
+
+The price is that a committed copy can drift from the sources it was built from,
+so `scripts/build.ts` stamps it with a hash of every file under `src/`
+(`// kick-claude-source-hash: <16 hex>`) and `scripts/check-action-bundle.ts`
+compares that stamp. Two things make the check meaningful rather than decorative:
+
+- it reads the bundle **out of git** (`git show HEAD:action/cli.js`), not off
+  disk. What ships is the committed copy, and CI runs `bun run build` too — and
+  the build overwrites `action/cli.js`, so a check against the working tree only
+  ever compares the bundle with itself;
+- the hash is taken over line endings normalized to LF. Without that the stamp
+  depends on the checkout: `core.autocrlf` makes these files CRLF on a Windows
+  working tree, and a build there stamps the bundle with a hash no Linux runner
+  can reproduce — precisely the drift the stamp exists to catch.
+
+CI runs the guard both before and after `bun run build`, and `action/cli.js` is
+marked `-text` in `.gitattributes` so git never rewrites it. If you change
+anything under `src/`, run `bun run build && git add action/cli.js` and commit
+the bundle in the same change — otherwise CI fails.
 
 ## License
 

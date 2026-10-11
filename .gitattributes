@@ -1,0 +1,5 @@
+# The committed action bundle is a build artifact that is executed as-is by the
+# Node 24 runtime. Git must store and check it out byte-for-byte: line-ending
+# conversion would rewrite a file the build produced, and `core.autocrlf` on a
+# Windows checkout would otherwise turn it into CRLF on every clone.
+action/cli.js -text -diff
