@@ -34,8 +34,7 @@ import {
   yellow,
   confirm,
 } from "./ui.ts";
-
-const VERSION = "0.1.0";
+import { VERSION } from "./version.generated.ts";
 
 const OPTION_SPEC = {
   json: { type: "boolean" },
