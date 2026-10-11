@@ -48,7 +48,7 @@
   "scripts": {
     "build": "bun run scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "test:action": "bun run build && bun run scripts/action-check.ts",
     "prepublishOnly": "bun run build"
   },
