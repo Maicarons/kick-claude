@@ -1,6 +1,6 @@
 {
   "name": "kick-claude",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Detect and losslessly purge Claude Code collaboration artifacts (CLAUDE.md, .claude/, .mcp.json ...) from a git repository — working tree and full history.",
   "keywords": [
     "git",

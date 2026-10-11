@@ -1839,8 +1839,10 @@ function restoreInstructions(backup, info) {
   return restoreHint(backup, info);
 }
 
+// src/version.generated.ts
+var VERSION = "1.0.1";
+
 // src/cli.ts
-var VERSION = "0.1.0";
 var OPTION_SPEC = {
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
@@ -2260,6 +2262,6 @@ main().then((code) => process.exit(code), (e) => {
   process.exit(2);
 });
 
-//# debugId=42B9C86AB908E67B64756E2164756E21
+//# debugId=7AA7EEA39DD496B264756E2164756E21
 
-// kick-claude-source-hash: ee4d7900e4f77883
+// kick-claude-source-hash: a239f229131c09ed

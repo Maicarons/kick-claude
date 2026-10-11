@@ -57,11 +57,14 @@ if (!existsSync(join(dist, "types", "index.d.ts"))) {
   process.exit(1);
 }
 
-// A tiny marker so `kick-claude --version` can report the real package version
-// even when the bundle is executed from a global install.
+// A tiny module so `kick-claude --version` reports the real package version
+// even when the bundle is executed from a global install. The version string is
+// generated, never hand-edited: `VERSION` must stay the single source of truth
+// in package.json, and CI fails the build if pkg.version disagrees with the
+// current git tag (see .github/workflows/ci.yml).
 const pkg = await Bun.file(join(root, "package.json")).json();
 await writeFile(
-  join(dist, "version.js"),
+  join(root, "src", "version.generated.ts"),
   `export const VERSION = ${JSON.stringify(pkg.version)};\n`,
 );
 

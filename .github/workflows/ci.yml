@@ -22,7 +22,23 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
-      - run: node dist/cli.js --version
+      - name: CLI reports the package version (tag pushes must match)
+        run: |
+          reported=$(node dist/cli.js --version)
+          pkg_version=$(node -p "require('./package.json').version")
+          echo "CLI reports: $reported"
+          echo "package.json: $pkg_version"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag_version="${{ github.ref_name }}"
+            tag_version="${tag_version#v}"
+            echo "pushing tag -> expected version $tag_version"
+            if [ "$reported" != "$pkg_version" ] || [ "$pkg_version" != "$tag_version" ]; then
+              echo "error: version mismatch (cli=$reported pkg=$pkg_version tag=$tag_version)"
+              exit 1
+            fi
+          else
+            echo "not a tag push - skipping version gate"
+          fi
 
   action:
     name: action bundle and harness
