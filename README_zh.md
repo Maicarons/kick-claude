@@ -275,6 +275,8 @@ console.log(result.stats, result.verification);
 ```bash
 bun install
 bun test          # 单元测试 + 针对真实临时仓库的端到端 purge
+                  # （`bun run test` 额外带 30s 单测超时：e2e fixture 要建一个
+                  #   真实仓库、发起约 31 次 git 调用，慢机器上会超过 Bun 默认的 5s）
 bun run test:action   # 用模拟的 runner 环境变量驱动 action/index.cjs
 bun run typecheck
 bun run build     # dist/ bundle、.d.ts 以及提交进仓库的 action/cli.js 副本

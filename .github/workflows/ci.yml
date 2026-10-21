@@ -21,7 +21,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test
+      - run: bun run test
       - run: bun run build
       - name: CLI reports the package version (tag pushes must match)
         shell: bash
